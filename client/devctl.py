@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import socket
+import struct
 import sys
 import time
 
@@ -255,6 +256,181 @@ def cmd_ops(a):
     sys.exit(0)
 
 
+LAST = os.path.expanduser("~/.devctl/last_search.json")
+
+
+def cmd_find(a):
+    """搜索/过滤: find <name> <pid|pkg> <type> <value> [max] | find <name> <pid> <changed|increased|decreased>"""
+    d = find(a.name)
+    if a.filter:
+        r = cmd_call(d, "mem_search", [a.pid, a.filter], timeout=a.timeout)
+    else:
+        args = [a.pid, a.type, a.value]
+        if a.max:
+            args.append(str(a.max))
+        r = cmd_call(d, "mem_search", args, timeout=a.timeout)
+    if not r.get("ok"):
+        emit(a, r)
+    data = json.loads(r["data"])
+    with open(LAST, "w", encoding="utf-8") as f:
+        json.dump({"name": a.name, "pid": a.pid, "addrs": [s["addr"] for s in data["sample"]], "count": data["count"]}, f)
+    if a.json:
+        print(json.dumps({"ok": True, **data}, ensure_ascii=False))
+    else:
+        print(f"匹配 {data['count']} 个地址")
+        for s in data["sample"][:10]:
+            print(f"  {s['addr']}  {s['value']}")
+        if data["count"] > len(data["sample"]):
+            print("  ... (完整列表已存, 可用 writeall 批量写)")
+    sys.exit(0)
+
+
+def cmd_writeall(a):
+    """对最近一次 find 结果的所有地址批量写入"""
+    try:
+        last = json.load(open(LAST, encoding="utf-8"))
+    except (OSError, ValueError):
+        sys.exit("没有 find 结果, 先 devctl find")
+    d = find(last["name"])
+    pid = a.pid or last["pid"]
+    ok = 0
+    for addr in last["addrs"]:
+        r = cmd_call(d, "mem_write", [str(pid), addr, a.type, a.value], timeout=a.timeout)
+        if r.get("ok"):
+            ok += 1
+    print(f"写入 {ok}/{len(last['addrs'])} 个地址")
+    sys.exit(0)
+
+
+def cmd_fovflicker(a):
+    """fov 线性渐变: 1°↔120° 平滑往返 (Ctrl-C 停止, 停止时恢复 90°)"""
+    d = find(a.name)
+    addr = a.addr
+    if not addr:
+        try:
+            cfg = json.load(open(FOV_CFG, encoding="utf-8"))
+            addr = cfg["addr"]
+            print(f"使用已保存 fov 地址: {addr}")
+        except (OSError, ValueError, KeyError):
+            pass
+    if not addr:
+        if not a.value:
+            sys.exit("需要 --addr 已知地址, 或先 devctl fovfind, 或 --value 自动定位")
+        addr = locate_fov(a, d, a.value)
+        with open(FOV_CFG, "w", encoding="utf-8") as f:
+            json.dump({"pid": a.pid, "addr": addr}, f)
+        print(f"自动定位 fov @ {addr}")
+    lo, hi = a.lo, a.hi
+    print(f"fov 线性渐变 {lo}°↔{hi}° @ {addr} 步进 {a.step}°/{a.interval*1000:.0f}ms (Ctrl-C 停止)")
+    try:
+        v, delta = float(lo), float(a.step)
+        while True:
+            cmd_call(d, "mem_write", [a.pid, addr, "f32", f"{v:.4f}"], timeout=30)
+            time.sleep(a.interval)
+            v += delta
+            if v >= hi:
+                v, delta = float(hi), -abs(a.step)
+            elif v <= lo:
+                v, delta = float(lo), abs(a.step)
+    except KeyboardInterrupt:
+        cmd_call(d, "mem_write", [a.pid, addr, "f32", "90"], timeout=30)
+        print("\n已停止, fov 恢复 90°")
+
+
+FOV_CFG = os.path.expanduser("~/.devctl/fov.json")
+
+
+def locate_fov(a, d, cur_value):
+    """交互定位 fov: 搜当前度数 → 用户调+1 → changed → 找精确新值"""
+    r = cmd_call(d, "mem_search", [a.pid, "f32", str(cur_value), "50000"], timeout=600)
+    if not r.get("ok"):
+        emit(a, r)
+    n = json.loads(r["data"])["count"]
+    print(f"搜到 {n} 个, 请把视角调到 {cur_value + 1} 度, 完成后回车...")
+    input()
+    r = cmd_call(d, "mem_search", [a.pid, "changed"], timeout=600)
+    if not r.get("ok"):
+        emit(a, r)
+    data = json.loads(r["data"])
+    target = struct.pack("<f", cur_value + 1).hex()
+    cand = [s for s in data["sample"] if s["value"] == target]
+    if not cand:
+        print("changed 结果:", [(s["addr"], s["value"]) for s in data["sample"][:10]])
+        sys.exit("定位失败: changed 里没有精确新值 (确认视角已改变)")
+    return cand[0]["addr"]
+
+
+def cmd_fovfind(a):
+    """一键定位 fov 地址并保存 (游戏重启后重新定位)"""
+    d = find(a.name)
+    if a.value is None:
+        sys.exit("usage: fovfind <name> <pid> --value <当前视角度数>")
+    addr = locate_fov(a, d, a.value)
+    with open(FOV_CFG, "w", encoding="utf-8") as f:
+        json.dump({"pid": a.pid, "addr": addr}, f)
+    print(f"✅ fov 地址: {addr} (已保存, fovflicker 自动使用)")
+    sys.exit(0)
+
+
+def cmd_fovlock(a):
+    """代码 patch: 锁定视角为指定度数 (默认 120), 重启后需重新锁定"""
+    d = find(a.name)
+    deg = a.deg or 120
+    bits = struct.unpack("<I", struct.pack("<f", float(deg)))[0]
+    if bits & 0xFFFF:
+        sys.exit("仅支持整数度数")
+    hex4 = (0x52800000 | (1 << 21) | ((bits >> 16) << 5) | 8).to_bytes(4, "little").hex()
+    r = cmd_call(d, "mem_patchlib", [a.pid, "libminecraftpe.so", "0x118bdb48", hex4], timeout=30)
+    if r.get("ok"):
+        print(f"✅ 视角已锁定 {deg}° (patch: ldr->mov {hex4})")
+        sys.exit(0)
+    emit(a, r)
+
+
+def cmd_fovunlock(a):
+    """恢复原指令 (视角回设置值)"""
+    d = find(a.name)
+    r = cmd_call(d, "mem_patchlib", [a.pid, "libminecraftpe.so", "0x118bdb48", "08e84abd"], timeout=30)
+    if r.get("ok"):
+        print("✅ 已恢复 (视角回设置值)")
+        sys.exit(0)
+    emit(a, r)
+
+
+CUR_FILE = os.path.expanduser("~/.devctl/cur.json")
+
+
+def cmd_cur(a):
+    """获取并保存当前前台应用 (供后续命令直接使用)"""
+    d = find(a.name)
+    r = cmd_call(d, "shell", ["dumpsys activity activities | grep -E 'topResumedActivity=' | head -1"], timeout=30)
+    if not r.get("ok"):
+        emit(a, r)
+    line = r.get("stdout", "")
+    import re
+    m = re.search(r"topResumedActivity=ActivityRecord\{[^ ]+ u0 ([^/\s]+)", line)
+    if not m:
+        sys.exit(f"解析失败: {line.strip()[:80]}")
+    pkg = m.group(1)
+    r = cmd_call(d, "mem_pid", [pkg], timeout=30)
+    pid = r.get("stdout", "").strip()
+    with open(CUR_FILE, "w", encoding="utf-8") as f:
+        json.dump({"pkg": pkg, "pid": pid, "time": time.strftime("%H:%M:%S")}, f)
+    print(f"当前应用: {pkg} (pid {pid}) 已保存")
+    sys.exit(0)
+
+
+def cur_target(a):
+    """返回 (pkg, pid): 优先 --pid, 否则读保存的当前应用"""
+    if a.pid:
+        return None, a.pid
+    try:
+        c = json.load(open(CUR_FILE, encoding="utf-8"))
+        return c["pkg"], c["pid"]
+    except (OSError, ValueError, KeyError):
+        sys.exit("没有保存的当前应用, 先 devctl cur")
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -304,6 +480,55 @@ def main():
     sp.add_argument("--tail", type=int, default=50)
     sp.add_argument("--timeout", type=int, default=30)
     sp.set_defaults(fn=cmd_ops)
+
+    sp = sub.add_parser("find", parents=[j], help="内存搜索/过滤循环 (结果存 last_search, 供 writeall)")
+    sp.add_argument("name")
+    sp.add_argument("pid", help="进程 pid 或包名")
+    sp.add_argument("--type", help="i8/i16/i32/i64/f32/f64/str/hex")
+    sp.add_argument("--value")
+    sp.add_argument("--filter", choices=["changed", "increased", "decreased"], help="基于上次结果过滤")
+    sp.add_argument("--max", type=int, default=50000)
+    sp.add_argument("--timeout", type=int, default=600)
+    sp.set_defaults(fn=cmd_find)
+
+    sp = sub.add_parser("writeall", parents=[j], help="对最近 find 结果批量写入")
+    sp.add_argument("--type", required=True, help="i8/i16/i32/i64/f32/f64/str/hex")
+    sp.add_argument("--value", required=True)
+    sp.add_argument("--pid", help="覆盖保存的 pid")
+    sp.add_argument("--timeout", type=int, default=60)
+    sp.set_defaults(fn=cmd_writeall)
+
+    sp = sub.add_parser("fovflicker", parents=[j], help="fov 线性渐变 1°↔120° 平滑往返 (Ctrl-C 停止)")
+    sp.add_argument("name")
+    sp.add_argument("pid", help="进程 pid 或包名")
+    sp.add_argument("--addr", help="已知 fov 地址 (跳过定位)")
+    sp.add_argument("--value", type=float, help="当前视角度数 (自动定位用)")
+    sp.add_argument("--lo", type=float, default=1, help="最低视角 (默认 1)")
+    sp.add_argument("--hi", type=float, default=120, help="最高视角 (默认 120)")
+    sp.add_argument("--step", type=float, default=1, help="每步度数 (默认 1)")
+    sp.add_argument("--interval", type=float, default=0.02, help="每步间隔秒 (默认 0.02)")
+    sp.set_defaults(fn=cmd_fovflicker)
+
+    sp = sub.add_parser("fovfind", parents=[j], help="一键定位 fov 地址并保存")
+    sp.add_argument("name")
+    sp.add_argument("pid", help="进程 pid 或包名")
+    sp.add_argument("--value", type=float, required=True, help="当前视角度数")
+    sp.set_defaults(fn=cmd_fovfind)
+
+    sp = sub.add_parser("fovlock", parents=[j], help="代码 patch 锁定视角 (重启后重新锁定)")
+    sp.add_argument("name")
+    sp.add_argument("pid", help="进程 pid 或包名")
+    sp.add_argument("--deg", type=int, help="锁定度数 (默认 120)")
+    sp.set_defaults(fn=cmd_fovlock)
+
+    sp = sub.add_parser("fovunlock", parents=[j], help="恢复视角代码")
+    sp.add_argument("name")
+    sp.add_argument("pid", help="进程 pid 或包名")
+    sp.set_defaults(fn=cmd_fovunlock)
+
+    sp = sub.add_parser("cur", parents=[j], help="获取并保存当前前台应用")
+    sp.add_argument("name")
+    sp.set_defaults(fn=cmd_cur)
 
     a = p.parse_args()
     a.fn(a)
