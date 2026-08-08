@@ -431,6 +431,79 @@ def cur_target(a):
         sys.exit("没有保存的当前应用, 先 devctl cur")
 
 
+def cmd_play(a):
+    """播放音频: 转wav → 推送 → 关DND → 系统播放器播放 (备选tinyplay直出)"""
+    d = find(a.name)
+    import subprocess
+    tmp = "/tmp/devctl_play48.wav"
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", a.file, "-ar", "48000", "-ac", "2", tmp],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"ffmpeg 转换失败: {r.stderr[:200]}")
+    try:
+        b = open(tmp, "rb").read()
+    except OSError as e:
+        sys.exit(f"读取失败: {e}")
+    r = cmd_call(d, "push", ["/data/local/tmp/devctl_play.wav"], data=base64.b64encode(b).decode(), timeout=120)
+    if not r.get("ok"):
+        emit(a, r)
+    # 关闭勿扰 (DND 会导致系统/媒体静音, 踩坑记录)
+    cmd_call(d, "shell", ["cmd notification set_dnd off 2>/dev/null || true"], timeout=30)
+    # 系统播放器播放 (AudioFlinger 自动配置路由/功放)
+    r = cmd_call(d, "shell", ["am start -a android.intent.action.VIEW -d file:///data/local/tmp/devctl_play.wav -t audio/x-wav 2>&1"], timeout=30)
+    if not r.get("ok"):
+        emit(a, r)
+    print(f"🎵 正在手机播放: {a.file}")
+    sys.exit(0)
+
+
+def cmd_volume(a):
+    """设置媒体音量百分比 (0-100)"""
+    d = find(a.name)
+    r = cmd_call(d, "shell", ["dumpsys audio | grep -A6 'STREAM_MUSIC:' | grep Max | head -1"], timeout=30)
+    try:
+        maxv = int(r.get("stdout", "").split(":")[1].strip())
+    except (ValueError, IndexError):
+        maxv = 160
+    level = max(0, min(100, a.percent)) * maxv // 100
+    r = cmd_call(d, "shell", [f"cmd media_session volume --stream 3 --set {level}"], timeout=30)
+    if r.get("ok"):
+        print(f"🔊 媒体音量: {a.percent}% ({level}/{maxv})")
+        sys.exit(0)
+    emit(a, r)
+
+
+def cmd_bt(a):
+    """蓝牙开关"""
+    d = find(a.name)
+    if a.action == "status":
+        r = cmd_call(d, "shell", ["settings get global bluetooth_on 2>/dev/null || echo 未知"], timeout=30)
+        print(f"蓝牙: {'开启' if r.get('stdout','').strip() == '1' else '关闭'}")
+        sys.exit(0)
+    cmd = "enable" if a.action == "on" else "disable"
+    r = cmd_call(d, "shell", [f"svc bluetooth {cmd} 2>&1 | tail -1"], timeout=30)
+    if r.get("ok") and "Success" in r.get("stdout", ""):
+        print(f"✅ 蓝牙已{'开启' if a.action == 'on' else '关闭'}")
+        sys.exit(0)
+    emit(a, r)
+
+
+def cmd_wifi(a):
+    """WiFi 开关"""
+    d = find(a.name)
+    if a.action == "status":
+        r = cmd_call(d, "shell", ["settings get global wifi_on 2>/dev/null || echo 未知"], timeout=30)
+        print(f"WiFi: {'开启' if r.get('stdout','').strip() == '1' else '关闭'}")
+        sys.exit(0)
+    cmd = "enable" if a.action == "on" else "disable"
+    r = cmd_call(d, "shell", [f"svc wifi {cmd} 2>&1 | tail -1"], timeout=30)
+    if r.get("ok") and "Success" in r.get("stdout", ""):
+        print(f"✅ WiFi 已{'开启' if a.action == 'on' else '关闭'}")
+        sys.exit(0)
+    emit(a, r)
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -529,6 +602,22 @@ def main():
     sp = sub.add_parser("cur", parents=[j], help="获取并保存当前前台应用")
     sp.add_argument("name")
     sp.set_defaults(fn=cmd_cur)
+
+    sp = sub.add_parser("play", parents=[j], help="播放音频到设备 (自动转48k+关DND+系统播放器)")
+    sp.add_argument("name")
+    sp.add_argument("file", help="本地音频文件 (mp3/wav/m4a 等)")
+    sp.set_defaults(fn=cmd_play)
+
+    sp = sub.add_parser("volume", parents=[j], help="设置媒体音量百分比")
+    sp.add_argument("name")
+    sp.add_argument("percent", type=int, help="0-100")
+    sp.set_defaults(fn=cmd_volume)
+
+    for name, fn, desc in (("bt", cmd_bt, "蓝牙开关"), ("wifi", cmd_wifi, "WiFi 开关")):
+        sp = sub.add_parser(name, parents=[j], help=desc)
+        sp.add_argument("name")
+        sp.add_argument("action", choices=["on", "off", "status"], help="on/off/status")
+        sp.set_defaults(fn=fn)
 
     a = p.parse_args()
     a.fn(a)

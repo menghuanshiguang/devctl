@@ -217,6 +217,7 @@ func init() {
 	methods["mem_patch"] = mMemPatch
 	methods["mem_patchlib"] = mMemPatch
 	methods["hook"] = mHook
+	methods["play"] = mPlay
 }
 
 // libBase: 进程内共享库基址
