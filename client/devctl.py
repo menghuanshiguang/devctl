@@ -97,7 +97,7 @@ def emit(a, r):
             print(r["stdout"], end="" if r["stdout"].endswith("\n") else "\n")
         if r.get("stderr"):
             sys.stderr.write(r["stderr"])
-        if r.get("data", "").startswith("["):
+        if r.get("data", "").startswith(("[", "{")):
             try:
                 print(json.dumps(json.loads(r["data"]), ensure_ascii=False, indent=2))
             except ValueError:
