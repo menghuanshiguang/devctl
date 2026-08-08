@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+// ops.log: 接收端操作审计记录 (每次命令一行 JSON)
+const opsLogPath = "/data/local/devctl/ops.log"
+
+var opsMu sync.Mutex
+
+func logOps(m Msg, ms int64) {
+	opsMu.Lock()
+	defer opsMu.Unlock()
+	f, err := os.OpenFile(opsLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	args, _ := json.Marshal(m.Args)
+	fmt.Fprintf(f, `{"t":"%s","method":"%s","args":%s,"ms":%d}`+"\n",
+		time.Now().Format(time.RFC3339), m.Method, args, ms)
+}
+
 type conn struct {
 	nc           net.Conn
 	r            *bufio.Reader
@@ -90,5 +108,7 @@ func (c *conn) dispatch(m Msg) {
 		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(false), Stderr: "unknown method: " + m.Method})
 		return
 	}
+	start := time.Now()
 	fn(c, m)
+	logOps(m, time.Since(start).Milliseconds())
 }

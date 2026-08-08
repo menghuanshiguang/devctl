@@ -195,7 +195,7 @@ func mLogcat(c *conn, m Msg) {
 
 // sysinfo: 设备信息
 func mSysinfo(c *conn, m Msg) {
-	info := map[string]string{"goos": runtime.GOOS, "goarch": runtime.GOARCH}
+	info := map[string]string{"goos": runtime.GOOS, "goarch": runtime.GOARCH, "version": version}
 	for _, kv := range [][2]string{
 		{"model", "ro.product.model"}, {"brand", "ro.product.brand"},
 		{"android", "ro.build.version.release"}, {"sdk", "ro.build.version.sdk"},

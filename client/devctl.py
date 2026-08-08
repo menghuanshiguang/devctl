@@ -205,6 +205,56 @@ def cmd_logcat(a):
         pass  # 断开即停 (v1 简化)
 
 
+def cmd_update(a):
+    """热更新 agent: push → 验证 → 备份 → 替换 → pkill(service.sh 自动拉起)"""
+    d = find(a.name)
+    try:
+        b = open(a.binary, "rb").read()
+    except OSError as e:
+        sys.exit(f"读取 {a.binary} 失败: {e}")
+    if not b:
+        sys.exit("二进制为空")
+    # 1. push 新二进制
+    r = cmd_call(d, "push", ["/data/local/devctl/agent.new"], data=base64.b64encode(b).decode(), timeout=a.timeout)
+    if not r.get("ok"):
+        emit(a, r)
+    # 2. 验证可执行 + 取版本
+    r = cmd_call(d, "shell", ["chmod 755 /data/local/devctl/agent.new && /data/local/devctl/agent.new -version"], timeout=a.timeout)
+    if not r.get("ok"):
+        emit(a, r)
+    newver = r.get("stdout", "").strip()
+    # 3. 备份旧版 + 原子替换 (mv rename, 运行中的文件不可 cp 覆盖)
+    r = cmd_call(d, "shell", [f"cp {a.remote} /data/local/devctl/agent.bak && cp /data/local/devctl/agent.new {a.remote}.new && mv -f {a.remote}.new {a.remote} && chmod 755 {a.remote}"], timeout=a.timeout)
+    if not r.get("ok"):
+        emit(a, r)
+    # 4. 杀旧进程, 连接会断 (预期), service.sh 10s 内拉起新版本
+    try:
+        cmd_call(d, "shell", [f"pkill -f '^{a.remote}' || true"], timeout=10)
+    except (SystemExit, ConnectionError, OSError, socket.timeout):
+        pass
+    time.sleep(12)
+    # 5. 验证恢复
+    try:
+        s = connect(d, timeout=8)
+        send(s, {"t": "ping"})
+        LineReader(s).next()
+        s.close()
+    except (OSError, socket.timeout, ConnectionError, SystemExit) as e:
+        sys.exit(f"更新后连接失败: {e} (可回滚: 重新 push agent.bak)")
+    print(f"更新完成: {newver} (备份: /data/local/devctl/agent.bak)")
+    sys.exit(0)
+
+
+def cmd_ops(a):
+    """查看接收端操作记录 (ops.log)"""
+    d = find(a.name)
+    r = cmd_call(d, "shell", ["tail -n %d /data/local/devctl/ops.log 2>/dev/null" % a.tail], timeout=a.timeout)
+    if not r.get("ok"):
+        emit(a, r)
+    print(r.get("stdout", ""), end="")
+    sys.exit(0)
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -241,6 +291,19 @@ def main():
     sp.add_argument("name")
     sp.add_argument("--filter", default="")
     sp.set_defaults(fn=cmd_logcat)
+
+    sp = sub.add_parser("update", parents=[j], help="热更新 agent 二进制 (无需重启/刷模块)")
+    sp.add_argument("name")
+    sp.add_argument("binary", help="本地新二进制路径")
+    sp.add_argument("--remote", default="/data/adb/modules/devctl_agent/agent", help="agent 可执行文件路径")
+    sp.add_argument("--timeout", type=int, default=60)
+    sp.set_defaults(fn=cmd_update)
+
+    sp = sub.add_parser("ops", parents=[j], help="查看接收端操作记录 (ops.log)")
+    sp.add_argument("name")
+    sp.add_argument("--tail", type=int, default=50)
+    sp.add_argument("--timeout", type=int, default=30)
+    sp.set_defaults(fn=cmd_ops)
 
     a = p.parse_args()
     a.fn(a)
