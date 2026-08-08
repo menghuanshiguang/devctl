@@ -1,0 +1,94 @@
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"sync"
+	"time"
+)
+
+type conn struct {
+	nc           net.Conn
+	r            *bufio.Reader
+	mu           sync.Mutex
+	authed       bool
+	streamingCmd *exec.Cmd
+}
+
+var methods = map[string]func(*conn, Msg){}
+
+func serve(port int, token string) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "devctl-agent %s listening on :%d\n", version, port)
+	for {
+		nc, err := ln.Accept()
+		if err != nil {
+			return err
+		}
+		go handle(nc, token)
+	}
+}
+
+func handle(nc net.Conn, token string) {
+	c := &conn{nc: nc, r: bufio.NewReaderSize(nc, 1<<20)}
+	defer nc.Close()
+	defer func() {
+		c.mu.Lock()
+		if c.streamingCmd != nil {
+			c.streamingCmd.Process.Kill()
+		}
+		c.mu.Unlock()
+	}()
+	nc.SetDeadline(time.Now().Add(300 * time.Second)) // 300s idle 断开, 每次收到消息刷新
+	for {
+		line, err := c.r.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		nc.SetDeadline(time.Now().Add(300 * time.Second))
+		var m Msg
+		if json.Unmarshal(line, &m) != nil {
+			continue
+		}
+		if !c.authed {
+			if m.T != "hello" || m.Token != token {
+				c.send(Msg{T: "hello_ack", Ok: boolp(false), Stderr: "bad token"})
+				return
+			}
+			c.authed = true
+			c.send(Msg{T: "hello_ack", Ok: boolp(true), Version: version, Device: deviceInfo()})
+			continue
+		}
+		switch m.T {
+		case "ping":
+			c.send(Msg{T: "pong"})
+		case "cmd":
+			go c.dispatch(m)
+		case "bye":
+			return
+		}
+	}
+}
+
+func (c *conn) send(m Msg) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, _ := json.Marshal(m)
+	c.nc.Write(append(b, '\n'))
+}
+
+func (c *conn) dispatch(m Msg) {
+	fn, ok := methods[m.Method]
+	if !ok {
+		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(false), Stderr: "unknown method: " + m.Method})
+		return
+	}
+	fn(c, m)
+}

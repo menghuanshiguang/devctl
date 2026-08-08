@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: build agent (android arm64)
+        working-directory: agent
+        run: CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -ldflags "-s -w" -o ../release/agent .
+      - name: package magisk module
+        run: |
+          cd magisk
+          cp ../release/agent ./agent
+          zip -r ../release/devctl-android.zip module.prop service.sh agent
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/devctl-android.zip

@@ -1,0 +1,6 @@
+id=devctl_agent
+name=devctl agent
+version=v0.1
+versionCode=1
+author=devctl
+description=LAN control agent (root daemon, port 5556)

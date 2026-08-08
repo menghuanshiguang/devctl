@@ -1,0 +1,4 @@
+release/agent
+release/*.zip
+__pycache__/
+*.pyc
