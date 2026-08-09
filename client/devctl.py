@@ -523,30 +523,17 @@ def cmd_unlock(a):
     if "true" not in r.get("stdout", ""):
         print("✅ 手机未锁屏")
         sys.exit(0)
-    # 3. 解锁: 混沌系统, 多轮变招重试 (直接滑 / 收通知栏 / 重启 systemui)
+    # 3. 解锁: 稳定序列 (224→swipe→text→66), 纯重试不加变招
     for attempt in range(a.retry):
-        if attempt > 0 and attempt % 2 == 0:
-            cmd_call(d, "shell", ["pkill -f com.android.systemui || true"], timeout=30)
-            time.sleep(8)
-            cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
-            time.sleep(2)
-        elif attempt > 0:
-            cmd_call(d, "shell", ["cmd statusbar collapse || true"], timeout=30)
-            cmd_call(d, "shell", ["input swipe 600 500 600 1800 300"], timeout=30)
-            time.sleep(1)
-        cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
-        time.sleep(2)
-        cmd_call(d, "shell", ["input swipe 600 2500 600 900 300"], timeout=30)
-        time.sleep(2)
-        cmd_call(d, "shell", [f"input text {pwd}"], timeout=30)
-        time.sleep(1)
-        cmd_call(d, "shell", ["input keyevent 66"], timeout=30)
-        time.sleep(2)
-        r = cmd_call(d, "shell", ["dumpsys window | grep mDreamingLockscreen | head -1"], timeout=30)
-        if "false" in r.get("stdout", ""):
+        cmd_call(d, "shell", ["input keyevent 224; sleep 2; input swipe 600 2500 600 900 300; sleep 2; "
+                              f"input text {pwd}; sleep 1; input keyevent 66"], timeout=60)
+        time.sleep(3)
+        r = cmd_call(d, "shell", ["dumpsys window | grep -E 'mDreamingLockscreen|isKeyguardShowing' | head -2"], timeout=30)
+        out = r.get("stdout", "")
+        if "false" in out and "isKeyguardShowing=true" not in out:
             print(f"✅ 解锁成功 (第 {attempt + 1} 轮)")
             sys.exit(0)
-    sys.exit(f"解锁失败: {a.retry} 轮尝试后仍锁屏 (混沌系统, 稍后再试或手动解锁)")
+    sys.exit(f"解锁失败: {a.retry} 轮后仍锁屏")
 
 
 def cmd_screen(a):
