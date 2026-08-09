@@ -523,13 +523,19 @@ def cmd_unlock(a):
     if "true" not in r.get("stdout", ""):
         print("✅ 手机未锁屏")
         sys.exit(0)
-    # 3. 解锁 (第一轮直接, 第二轮重启 systemui 清卡死)
-    for attempt in range(2):
-        if attempt == 1:
+    # 3. 解锁: 混沌系统, 多轮变招重试 (直接滑 / 收通知栏 / 重启 systemui)
+    for attempt in range(a.retry):
+        if attempt > 0 and attempt % 2 == 0:
             cmd_call(d, "shell", ["pkill -f com.android.systemui || true"], timeout=30)
             time.sleep(8)
             cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
             time.sleep(2)
+        elif attempt > 0:
+            cmd_call(d, "shell", ["cmd statusbar collapse || true"], timeout=30)
+            cmd_call(d, "shell", ["input swipe 600 500 600 1800 300"], timeout=30)
+            time.sleep(1)
+        cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
+        time.sleep(2)
         cmd_call(d, "shell", ["input swipe 600 2500 600 900 300"], timeout=30)
         time.sleep(2)
         cmd_call(d, "shell", [f"input text {pwd}"], timeout=30)
@@ -538,9 +544,9 @@ def cmd_unlock(a):
         time.sleep(2)
         r = cmd_call(d, "shell", ["dumpsys window | grep mDreamingLockscreen | head -1"], timeout=30)
         if "false" in r.get("stdout", ""):
-            print("✅ 解锁成功")
+            print(f"✅ 解锁成功 (第 {attempt + 1} 轮)")
             sys.exit(0)
-    sys.exit("解锁失败: 多轮尝试后仍锁屏")
+    sys.exit(f"解锁失败: {a.retry} 轮尝试后仍锁屏 (混沌系统, 稍后再试或手动解锁)")
 
 
 def cmd_screen(a):
@@ -673,9 +679,10 @@ def main():
         sp.add_argument("action", choices=["on", "off", "status"], help="on/off/status")
         sp.set_defaults(fn=fn)
 
-    sp = sub.add_parser("unlock", parents=[j], help="解锁手机 (自动处理通知栏卡死)")
+    sp = sub.add_parser("unlock", parents=[j], help="解锁手机 (混沌系统, 多轮变招重试)")
     sp.add_argument("name")
     sp.add_argument("--password", help="锁屏密码 (缺省读 ~/.devctl/unlock_pwd.txt)")
+    sp.add_argument("--retry", type=int, default=4, help="尝试轮数 (默认 4)")
     sp.set_defaults(fn=cmd_unlock)
 
     sp = sub.add_parser("screen", parents=[j], help="亮屏/息屏/状态")
