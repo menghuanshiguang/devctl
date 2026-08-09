@@ -218,6 +218,9 @@ func init() {
 	methods["mem_patchlib"] = mMemPatch
 	methods["hook"] = mHook
 	methods["play"] = mPlay
+	methods["scrcpy_bridge"] = mScrcpyBridge
+	methods["vscreen_start"] = mVscreenStart
+	methods["vscreen_stop"] = mVscreenStop
 }
 
 // libBase: 进程内共享库基址
