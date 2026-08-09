@@ -504,6 +504,60 @@ def cmd_wifi(a):
     emit(a, r)
 
 
+def cmd_unlock(a):
+    """解锁手机: 唤醒→上滑→密码 (自动处理通知栏/systemui 卡死)"""
+    d = find(a.name)
+    pwd = a.password
+    if not pwd:
+        try:
+            pwd = open(os.path.expanduser("~/.devctl/unlock_pwd.txt"), encoding="utf-8").read().strip()
+        except (OSError, ValueError):
+            sys.exit("需要 --password 参数, 或写 ~/.devctl/unlock_pwd.txt")
+    # 1. 确保屏幕亮
+    r = cmd_call(d, "shell", ["dumpsys power | grep mWakefulness | head -1"], timeout=30)
+    if "Awake" not in r.get("stdout", ""):
+        cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
+        time.sleep(2)
+    # 2. 已解锁?
+    r = cmd_call(d, "shell", ["dumpsys window | grep mDreamingLockscreen | head -1"], timeout=30)
+    if "true" not in r.get("stdout", ""):
+        print("✅ 手机未锁屏")
+        sys.exit(0)
+    # 3. 解锁 (第一轮直接, 第二轮重启 systemui 清卡死)
+    for attempt in range(2):
+        if attempt == 1:
+            cmd_call(d, "shell", ["pkill -f com.android.systemui || true"], timeout=30)
+            time.sleep(8)
+            cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
+            time.sleep(2)
+        cmd_call(d, "shell", ["input swipe 600 2500 600 900 300"], timeout=30)
+        time.sleep(2)
+        cmd_call(d, "shell", [f"input text {pwd}"], timeout=30)
+        time.sleep(1)
+        cmd_call(d, "shell", ["input keyevent 66"], timeout=30)
+        time.sleep(2)
+        r = cmd_call(d, "shell", ["dumpsys window | grep mDreamingLockscreen | head -1"], timeout=30)
+        if "false" in r.get("stdout", ""):
+            print("✅ 解锁成功")
+            sys.exit(0)
+    sys.exit("解锁失败: 多轮尝试后仍锁屏")
+
+
+def cmd_screen(a):
+    """亮屏/息屏/状态"""
+    d = find(a.name)
+    if a.action == "on":
+        cmd_call(d, "shell", ["input keyevent 224"], timeout=30)
+        print("✅ 已亮屏")
+    elif a.action == "off":
+        cmd_call(d, "shell", ["input keyevent 26"], timeout=30)
+        print("✅ 已息屏")
+    else:
+        r = cmd_call(d, "shell", ["dumpsys power | grep mWakefulness | head -1"], timeout=30)
+        print(r.get("stdout", "").strip())
+    sys.exit(0)
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -618,6 +672,16 @@ def main():
         sp.add_argument("name")
         sp.add_argument("action", choices=["on", "off", "status"], help="on/off/status")
         sp.set_defaults(fn=fn)
+
+    sp = sub.add_parser("unlock", parents=[j], help="解锁手机 (自动处理通知栏卡死)")
+    sp.add_argument("name")
+    sp.add_argument("--password", help="锁屏密码 (缺省读 ~/.devctl/unlock_pwd.txt)")
+    sp.set_defaults(fn=cmd_unlock)
+
+    sp = sub.add_parser("screen", parents=[j], help="亮屏/息屏/状态")
+    sp.add_argument("name")
+    sp.add_argument("action", choices=["on", "off", "status"])
+    sp.set_defaults(fn=cmd_screen)
 
     a = p.parse_args()
     a.fn(a)
