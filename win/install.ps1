@@ -2,7 +2,7 @@
 # 用法: 管理员 PowerShell 执行  iex (irm https://raw.githubusercontent.com/menghuanshiguang/devctl/main/win/install.ps1)
 $ErrorActionPreference = "Stop"
 
-$ver = "v0.1-windows"
+$ver = "v0.2-windows"
 $url = "https://github.com/menghuanshiguang/devctl/releases/download/$ver/agent-windows.exe"
 $dir = "C:\devctl"
 $exe = "$dir\agent.exe"
