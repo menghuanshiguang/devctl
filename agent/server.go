@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -40,11 +41,16 @@ type conn struct {
 var methods = map[string]func(*conn, Msg){}
 
 func serve(port int, token string) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	cert, err := loadOrCreateCert()
+	if err != nil {
+		return fmt.Errorf("TLS 证书初始化失败: %v", err)
+	}
+	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), tlsCfg)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "devctl-agent %s listening on :%d\n", version, port)
+	fmt.Fprintf(os.Stderr, "devctl-agent %s listening on :%d (TLS)\n", version, port)
 	for {
 		nc, err := ln.Accept()
 		if err != nil {

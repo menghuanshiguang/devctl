@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import socket
+import ssl
 import struct
 import sys
 import time
@@ -60,9 +61,36 @@ class LineReader:
 
 def connect(d, timeout=8):
     last = None
+    cert_dir = os.path.expanduser("~/.devctl/certs")
+    os.makedirs(cert_dir, exist_ok=True)
+    cert_file = os.path.join(cert_dir, d["name"] + ".pem")
     for delay in (0, 0.5, 1, 2):  # 自动重试 4 次
         try:
-            s = socket.create_connection((d["host"], d.get("port", PORT_DEFAULT)), timeout=timeout)
+            raw = socket.create_connection((d["host"], d.get("port", PORT_DEFAULT)), timeout=timeout)
+            if os.path.exists(cert_file):
+                # 已有证书: 严格校验 (TOFU)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.load_verify_locations(cert_file)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_REQUIRED
+                s = ctx.wrap_socket(raw, server_hostname=d["host"])
+            else:
+                # 首次连接: 获取证书保存 (Trust On First Use)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                probe = ctx.wrap_socket(raw, server_hostname=d["host"])
+                der = probe.getpeercert(binary_form=True)
+                if der:
+                    with open(cert_file, "w") as f:
+                        f.write(ssl.DER_cert_to_PEM_cert(der))
+                probe.close()
+                raw = socket.create_connection((d["host"], d.get("port", PORT_DEFAULT)), timeout=timeout)
+                ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx2.load_verify_locations(cert_file)
+                ctx2.check_hostname = False
+                ctx2.verify_mode = ssl.CERT_REQUIRED
+                s = ctx2.wrap_socket(raw, server_hostname=d["host"])
             s.settimeout(timeout)
             send(s, {"t": "hello", "token": d.get("token", TOKEN_DEFAULT), "name": d["name"]})
             ack = LineReader(s).next()
