@@ -14,6 +14,8 @@ Write-Host "[2/5] 下载 agent-windows.exe"
 Invoke-WebRequest -Uri $url -OutFile $exe
 
 Write-Host "[3/5] 注册服务 (开机自启 + 失败自动重启)"
+sc.exe stop devctl-agent 2>$null | Out-Null
+sc.exe delete devctl-agent 2>$null | Out-Null
 sc.exe create devctl-agent binPath= "$exe" start= auto | Out-Null
 sc.exe failure devctl-agent reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
 
