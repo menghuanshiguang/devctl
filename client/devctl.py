@@ -61,6 +61,22 @@ class LineReader:
 
 def connect(d, timeout=8):
     last = None
+    if not d.get("tls", True):
+        # 明文模式 (迁移/兼容)
+        for delay in (0, 0.5, 1, 2):
+            try:
+                s = socket.create_connection((d["host"], d.get("port", PORT_DEFAULT)), timeout=timeout)
+                s.settimeout(timeout)
+                send(s, {"t": "hello", "token": d.get("token", TOKEN_DEFAULT), "name": d["name"]})
+                ack = LineReader(s).next()
+                if not ack.get("ok"):
+                    s.close()
+                    sys.exit(f"鉴权失败: {ack.get('stderr', '')}")
+                return s
+            except (OSError, socket.timeout) as e:
+                last = e
+                time.sleep(delay)
+        sys.exit(f"连接 {d['host']}:{d.get('port', PORT_DEFAULT)} 失败: {last}")
     cert_dir = os.path.expanduser("~/.devctl/certs")
     os.makedirs(cert_dir, exist_ok=True)
     cert_file = os.path.join(cert_dir, d["name"] + ".pem")
@@ -156,6 +172,8 @@ def cmd_add(a):
         d["port"] = a.port
     if a.token:
         d["token"] = a.token
+    if getattr(a, "no_tls", False):
+        d["tls"] = False
     c["devices"].append(d)
     cfg_save(c)
     print(f"已添加 {a.name}: {a.type} @ {a.host}:{a.port or PORT_DEFAULT}")
@@ -597,6 +615,7 @@ def main():
     sp.add_argument("--host", required=True)
     sp.add_argument("--port", type=int)
     sp.add_argument("--token", help=f"鉴权 token (默认 {TOKEN_DEFAULT})")
+    sp.add_argument("--no-tls", action="store_true", help="明文模式 (旧版 agent 迁移用)")
     sp.set_defaults(fn=cmd_add)
 
     sp = sub.add_parser("rm", parents=[j], help="删除设备")
