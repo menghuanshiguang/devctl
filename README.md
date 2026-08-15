@@ -24,6 +24,27 @@ python3 client/devctl.py logcat phone --filter AndroidRuntime:E  # Ctrl-C 停止
 
 所有命令加 `--json` 输出结构化结果（LLM 友好）。
 
+## Windows 接入（接收器）
+
+```powershell
+# 1. 拷贝 agent-windows.exe 到目标机 (如 C:\devctl\agent.exe)
+# 2. 注册为服务 (开机自启 + 失败自动重启)
+sc create devctl-agent binPath= "C:\devctl\agent.exe" start= auto
+sc failure devctl-agent reset= 60 actions= restart/5000/restart/10000/restart/30000
+sc start devctl-agent
+# 3. 防火墙放行 (默认端口 5556)
+netsh advfirewall firewall add rule name="devctl" dir=in action=allow protocol=TCP localport=5556
+# 4. 控制端连接
+devctl add pc --type windows --host <PC-IP>
+devctl ping pc
+devctl run pc shell "echo hello"
+devctl run pc ps        # 进程列表
+```
+
+- 也可直接前台运行 `agent.exe -port 5556`（调试）
+- Windows 方法：shell（cmd /c）、sysinfo、ps、push/pull、ping
+- 构建：`cd agent && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -p 1 -ldflags "-s -w" -o ../release/agent-windows.exe .`
+
 ## 安卓接入（Magisk）
 
 1. 下载 `devctl-android-v0.1.zip` → Magisk App → 模块 → 从本地安装 → 重启
