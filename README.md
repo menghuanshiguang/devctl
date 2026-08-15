@@ -26,22 +26,33 @@ python3 client/devctl.py logcat phone --filter AndroidRuntime:E  # Ctrl-C 停止
 
 ## Windows 接入（接收器）
 
+> ⚠️ 以下命令需在**管理员 PowerShell**（开始菜单右键 → 终端(管理员)）中执行
+
 ```powershell
-# 1. 拷贝 agent-windows.exe 到目标机 (如 C:\devctl\agent.exe)
+# 1. 拷贝 agent-windows.exe 到目标机
+New-Item -ItemType Directory -Force C:\devctl
+Copy-Item agent-windows.exe C:\devctl\agent.exe
+
 # 2. 注册为服务 (开机自启 + 失败自动重启)
-sc create devctl-agent binPath= "C:\devctl\agent.exe" start= auto
-sc failure devctl-agent reset= 60 actions= restart/5000/restart/10000/restart/30000
-sc start devctl-agent
+sc.exe create devctl-agent binPath= "C:\devctl\agent.exe" start= auto
+sc.exe failure devctl-agent reset= 60 actions= restart/5000/restart/10000/restart/30000
+sc.exe start devctl-agent
+
 # 3. 防火墙放行 (默认端口 5556)
 netsh advfirewall firewall add rule name="devctl" dir=in action=allow protocol=TCP localport=5556
-# 4. 控制端连接
-devctl add pc --type windows --host <PC-IP>
-devctl ping pc
-devctl run pc shell "echo hello"
-devctl run pc ps        # 进程列表
+
+# 4. 验证
+sc.exe query devctl-agent
 ```
 
 - 也可直接前台运行 `agent.exe -port 5556`（调试）
+- **控制端（Windows 本机或任何机器）**：devctl client 是 Python 单文件，用 Python 调用：
+  ```powershell
+  python devctl.py add pc --type windows --host <PC-IP>
+  python devctl.py ping pc
+  python devctl.py run pc shell "echo hello"
+  python devctl.py run pc ps        # 进程列表
+  ```
 - Windows 方法：shell（cmd /c）、sysinfo、ps、push/pull、ping
 - 构建：`cd agent && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -p 1 -ldflags "-s -w" -o ../release/agent-windows.exe .`
 
