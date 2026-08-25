@@ -54,7 +54,8 @@ python devctl.py run pc ps        # 进程列表
 
 ## 安卓接入（Magisk）
 
-1. 下载 `devctl-android-v0.1.zip` → Magisk App → 模块 → 从本地安装 → 重启
+1. 从 [Releases 页面](https://github.com/menghuanshiguang/devctl/releases) 下载最新版 Assets 里的
+   `devctl-android.zip` → Magisk App → 模块 → 从本地安装 → 重启
 2. 验证 agent 在跑（终端或 adb shell）：
    ```sh
    ps -A | grep agent          # 应看到 /data/adb/modules/devctl_agent/agent

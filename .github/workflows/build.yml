@@ -20,7 +20,10 @@ jobs:
         run: |
           cd magisk
           cp ../release/agent ./agent
+          chmod 755 agent service.sh
           zip -r ../release/devctl-android.zip module.prop service.sh agent
       - uses: softprops/action-gh-release@v2
         with:
-          files: release/devctl-android.zip
+          files: |
+            release/devctl-android.zip
+            release/agent-windows.exe
