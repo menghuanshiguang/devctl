@@ -1,6 +1,6 @@
 id=devctl_agent
 name=devctl agent
-version=v0.3
-versionCode=3
+version=v0.4
+versionCode=4
 author=devctl
 description=IP: 待更新 | devctl agent :5556
