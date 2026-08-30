@@ -615,6 +615,13 @@ def cmd_unhide(a):
     emit(a, r)
 
 
+def cmd_stop(a):
+    """关闭 agent 自身进程 (即优雅退出; Magisk service.sh 10s 后自动拉起 = 重启)"""
+    d = find(a.name)
+    r = cmd_call(d, "exit", [], timeout=a.timeout)
+    emit(a, r)
+
+
 def main():
     j = argparse.ArgumentParser(add_help=False)
     j.add_argument("--json", action="store_true", help="结构化 JSON 输出")
@@ -752,6 +759,11 @@ def main():
     sp.add_argument("name")
     sp.add_argument("--timeout", type=int, default=30)
     sp.set_defaults(fn=cmd_unhide)
+
+    sp = sub.add_parser("stop", parents=[j], help="关闭 agent 自身 (优雅退出; 服务守护下会自动重启)")
+    sp.add_argument("name")
+    sp.add_argument("--timeout", type=int, default=30)
+    sp.set_defaults(fn=cmd_stop)
 
     a = p.parse_args()
     a.fn(a)
