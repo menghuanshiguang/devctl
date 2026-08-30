@@ -7,7 +7,8 @@ public class DevctlUI {
     static Object trans;
 
     public static void main(String[] args) throws Exception {
-        int seconds = args.length > 0 ? Integer.parseInt(args[0]) : 30;
+        // 不传参或传 0 = 无限持续显示
+        int seconds = args.length > 0 ? Integer.parseInt(args[0]) : 0;
 
         Class<?> scClass = Class.forName("android.view.SurfaceControl");
         Class<?> builderCls = Class.forName("android.view.SurfaceControl$Builder");
@@ -51,7 +52,7 @@ public class DevctlUI {
         long t0 = System.currentTimeMillis();
         int[] colors = {0xE6101418, 0xE6104818, 0xE6101438, 0xE6441418};
         int frame = 0;
-        while (System.currentTimeMillis() - t0 < seconds * 1000L) {
+        while (seconds <= 0 || System.currentTimeMillis() - t0 < seconds * 1000L) {
             Object rect = rectCls.getDeclaredConstructor(int.class, int.class, int.class, int.class)
                     .newInstance(0, 0, 840, 180);
             Object canvas = mLock.invoke(surface, rect);
