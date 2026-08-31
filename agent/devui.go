@@ -13,6 +13,7 @@ package main
 // 通配匹配 (曾有 pkill -f app_process 误杀系统进程的事故), 一律按 pid 精确操作。
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strconv"
@@ -20,10 +21,18 @@ import (
 	"time"
 )
 
+// 载荷全套内嵌: 发布版单一 agent 自包含 (devui_start 自动落盘)
+// (devui.dex 由 zapi.go 内嵌, 此处共享)
+//go:embed assets/libdevui_hide.so
+var embeddedHideSo []byte
+
+//go:embed assets/devfont.bin
+var embeddedDevfont []byte
+
 const (
 	devuiPidFile = "/data/local/devctl/devui.pid"
 	devuiCmdFile = "/data/local/tmp/devctl/cmd"
-	devuiDex     = "/data/local/tmp/devctl/devui.dex"
+	devuiBase    = "/data/local/tmp/devctl"
 )
 
 func init() {
@@ -32,12 +41,29 @@ func init() {
 	methods["devui_status"] = mDevuiStatus
 }
 
+// ensureFile: 缺失时从内嵌载荷落盘
+func ensureFile(name string, data []byte, mode os.FileMode) error {
+	path := devuiBase + "/" + name
+	if st, err := os.Stat(path); err == nil && st.Size() == int64(len(data)) {
+		return nil
+	}
+	if err := os.MkdirAll(devuiBase, 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return err
+	}
+	return nil
+}
+
 func mDevuiStart(c *conn, m Msg) {
-	if _, err := os.Stat(devuiDex); err != nil {
-		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(false),
-			Stdout: "devui.dex 缺失: " + err.Error() + " (先 client devui push)"})
+	// 1) 自包含载荷落盘 (缺失/长度不符才写)
+	if err := ensureFile("devui.dex", embeddedDex, 0644); err != nil {
+		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(false), Stdout: "落盘 devui.dex: " + err.Error()})
 		return
 	}
+	_ = ensureFile("libdevui_hide.so", embeddedHideSo, 0755)
+	_ = ensureFile("devfont.bin", embeddedDevfont, 0644)
 	// 已在跑则提示
 	if pid, err := readPidFile(); err == nil && pidAlive(pid) {
 		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(true), Stdout: fmt.Sprintf("devui 已在运行 pid=%d", pid)})
@@ -46,7 +72,7 @@ func mDevuiStart(c *conn, m Msg) {
 	// 清理旧 pid 文件, 拉起
 	os.Remove(devuiPidFile)
 	cmd := fmt.Sprintf("rm -f %s; setsid nohup app_process -Djava.class.path=%s /system/bin DevctlOverlay > /data/local/devctl/devui.log 2>&1 < /dev/null & echo $!",
-		devuiPidFile, devuiDex)
+		devuiPidFile, devuiBase + "/devui.dex")
 	_, out, _ := runCmd("sh", "-c", cmd)
 	pidStr := strings.TrimSpace(out)
 	pid, err := strconv.Atoi(pidStr)
