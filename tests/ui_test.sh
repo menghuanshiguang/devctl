@@ -43,7 +43,14 @@ pull_latest() {
   echo "$LOCAL_SHOT/$f"
 }
 
-full() { deploy; shot; sleep 1; status; pull_latest; log "完成. 截图在 $LOCAL_SHOT/" }
+full() {
+  deploy
+  shot
+  sleep 1
+  status
+  pull_latest
+  log "完成. 截图在 $LOCAL_SHOT/"
+}
 
 case "${1:-help}" in
   deploy) deploy ;;
