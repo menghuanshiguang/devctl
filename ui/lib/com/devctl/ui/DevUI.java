@@ -50,6 +50,7 @@ public class DevUI {
     private static Object trans;
 
     private static int screenW = 1216, screenH = 2640;
+    private static int orientation = 0;   // 0=竖 1=横90 3=反横
 
     /** 反射初始化 (幂等) */
     public static void init() throws Exception {
@@ -88,6 +89,7 @@ public class DevUI {
         screenSize();
     }
 
+    public static int orientation() { return orientation; }
     public static int screenW() { return screenW; }
     public static int screenH() { return screenH; }
 
@@ -95,43 +97,51 @@ public class DevUI {
     public static void refreshScreenSize() { screenSize(); }
 
     private static void screenSize() {
-        // 真实屏幕尺寸 = 窗口 bounds (反映 app 横屏旋转, 如游戏强制横屏);
-        // 先试 dumpsys window mBounds (最可靠), 再退 wm size。
+        // 真实屏幕方向: mCurrentOrientation (0=竖, 1=横, 2=反竖, 3=反横) — 不随窗口抖动
+        // 物理尺寸: dumpsys display 的 DisplayDeviceInfo "1216 x 2640"
+        int orientation = 0;
+        int physW = 0, physH = 0;
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", "dumpsys window displays | grep -o 'mBounds=Rect([0-9]*, [0-9]* - [0-9]*, [0-9]*)' | head -1"});
+            Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c",
+                    "dumpsys display | grep -oE 'mCurrentOrientation=[0-9]+' | head -1"});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             String l = r.readLine();
             p.waitFor();
             if (l != null) {
-                Matcher m = Pattern.compile("([0-9]+), ([0-9]+) - ([0-9]+), ([0-9]+)").matcher(l);
-                if (m.find()) {
-                    int w = Integer.parseInt(m.group(3)) - Integer.parseInt(m.group(1));
-                    int h = Integer.parseInt(m.group(4)) - Integer.parseInt(m.group(2));
-                    if (w > 0 && h > 0) { screenW = w; screenH = h; return; }
-                }
+                Matcher m = Pattern.compile("mCurrentOrientation=([0-9]+)").matcher(l);
+                if (m.find()) { orientation = Integer.parseInt(m.group(1)); }
             }
         } catch (Exception e) {}
-        // 兜底: wm size (Physical/Override)
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", "wm size"});
+            Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c",
+                    "dumpsys display | grep -oE '[0-9]+ x [0-9]+' | head -1"});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            String l;
-            String physical = null;
-            while ((l = r.readLine()) != null) {
-                Matcher m = Pattern.compile("(\\d+)\\s*x\\s*(\\d+)").matcher(l);
-                if (m.find()) {
-                    if (l.contains("Override")) {
-                        screenW = Integer.parseInt(m.group(1)); screenH = Integer.parseInt(m.group(2));
-                        return;
-                    } else if (physical == null) { physical = l; }
-                }
-            }
-            if (physical != null) {
-                Matcher m = Pattern.compile("(\\d+)\\s*x\\s*(\\d+)").matcher(physical);
-                if (m.find()) { screenW = Integer.parseInt(m.group(1)); screenH = Integer.parseInt(m.group(2)); }
-            }
+            String l = r.readLine();
             p.waitFor();
+            if (l != null) {
+                Matcher m = Pattern.compile("([0-9]+) x ([0-9]+)").matcher(l);
+                if (m.find()) { physW = Integer.parseInt(m.group(1)); physH = Integer.parseInt(m.group(2)); }
+            }
         } catch (Exception e) {}
+        // 兜底: wm size
+        if (physW <= 0 || physH <= 0) {
+            try {
+                Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", "wm size"});
+                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                String l;
+                while ((l = r.readLine()) != null) {
+                    Matcher m = Pattern.compile("(\\d+)\\s*x\\s*(\\d+)").matcher(l);
+                    if (m.find()) { physW = Integer.parseInt(m.group(1)); physH = Integer.parseInt(m.group(2)); break; }
+                }
+                p.waitFor();
+            } catch (Exception e) {}
+        }
+        // 按方向输出实际宽高: 横屏(1/3)交换宽高
+        if (orientation == 1 || orientation == 3) {
+            screenW = physH; screenH = physW;
+        } else {
+            screenW = physW; screenH = physH;
+        }
     }
 
     // ==================== 绘制原语 (免 Paint, 全部绕开字体) ====================
@@ -451,8 +461,28 @@ public class DevUI {
             } catch (Exception e) {}
         }
 
-        private int sx() { return Math.round(lastRx * DevUI.screenW() / maxX); }
-        private int sy() { return Math.round(lastRy * DevUI.screenH() / maxY); }
+        /**
+         * 触摸坐标 → 屏幕坐标 (按屏幕方向旋转)。
+         * 触摸设备 raw 坐标始终是物理竖屏方向 (raw X=物理宽, raw Y=物理高),
+         * 屏幕旋转时需把 raw 坐标映射旋转:
+         *   方向0(竖):  sx = rx * W/maxX,      sy = ry * H/maxY
+         *   方向1(横90): sx = ry * W/maxY,     sy = (maxX - rx) * H/maxX
+         *   方向3(反横): sx = (maxY - ry) * W/maxY, sy = rx * H/maxX
+         */
+        private int sx() {
+            float W = DevUI.screenW(), H = DevUI.screenH();
+            int o = DevUI.orientation;
+            if (o == 1) return Math.round(lastRy * W / maxY);
+            if (o == 3) return Math.round((maxY - lastRy) * W / maxY);
+            return Math.round(lastRx * W / maxX);
+        }
+        private int sy() {
+            float W = DevUI.screenW(), H = DevUI.screenH();
+            int o = DevUI.orientation;
+            if (o == 1) return Math.round((maxX - lastRx) * H / maxX);
+            if (o == 3) return Math.round(lastRx * H / maxX);
+            return Math.round(lastRy * H / maxY);
+        }
 
         private void onFrame() {
             if (!down) return;
