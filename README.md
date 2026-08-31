@@ -99,3 +99,19 @@ cd magisk && cp ../release/agent ./agent && python3 -m zipfile -c ../release/dev
 ```
 
 打 tag `v0.1` 触发 GitHub Actions 自动构建 release。
+
+
+## 查看设备连接状态 (peers)
+
+设备端可查谁在连接 agent (无需悬浮窗):
+
+```sh
+# 控制端查询 (客户端列表)
+python3 client/devctl.py run <设备> peers
+
+# 设备端直接看 (root)
+cat /data/local/devctl/dash.json
+# {"agent_version":"v0.5","now":"19:58:31","peers":[{"name":"dev","addr":"192.168.1.100:5556","since":"19:57:01","last_cmd":"sysinfo"}]}
+```
+
+agent 自动维护 dash.json (连接/断开/每次命令时刷新), 包含: 客户端名/远端地址/连接时间/最后命令。
