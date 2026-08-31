@@ -91,6 +91,9 @@ public class DevUI {
     public static int screenW() { return screenW; }
     public static int screenH() { return screenH; }
 
+    /** 重新读取屏幕尺寸 (支持旋转检测: 每次调用重新执行 wm size) */
+    public static void refreshScreenSize() { screenSize(); }
+
     private static void screenSize() {
         try {
             Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", "wm size"});

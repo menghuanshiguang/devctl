@@ -24,7 +24,7 @@ public class DevctlOverlay {
 
     // ---- 布局 (相对屏幕) ----
     static final int BALL = 150;
-    static final int TITLE_H = 96;
+    static int TITLE_H = 96;          // 自适应 (竖屏 96, 横屏按比例)
     static final int PAD = 40;
     static final int TAP_PX = 30;
 
@@ -52,8 +52,8 @@ public class DevctlOverlay {
     // 面板信息
     static String infoTitle = "", info1 = "", info2 = "", info3 = "", info4 = "";
     static String connState = "", peerList = "", agentState = "";
-    static int BTN_Y_OFF = 150;
-    static int BTN_H = 96;
+    static int BTN_Y_OFF = 150;       // 自适应
+    static int BTN_H = 96;            // 自适应
 
     static Layer ball, panel;
     static GlyphFont font;
@@ -78,6 +78,7 @@ public class DevctlOverlay {
         }
         PANEL_W = DevUI.screenW();
         PANEL_H = DevUI.screenH();
+        layoutMetrics();
         System.out.println("[devui] font ok, screen=" + PANEL_W + "x" + PANEL_H);
 
         ball = DevUI.layer("DevctlBall", BALL, BALL, 0x7FFFFFFF - 100);
@@ -118,9 +119,16 @@ public class DevctlOverlay {
 
         System.out.println("[devui] ready, ball at " + ballX + "," + ballY);
 
-        // 主循环: 保活 + 面板数据周期刷新 (2s)
+        // 主循环: 保活 + 旋转检测 + 面板数据周期刷新 (2s)
         while (true) {
             Thread.sleep(2000);
+            DevUI.refreshScreenSize();
+            if (DevUI.screenW() != PANEL_W || DevUI.screenH() != PANEL_H) {
+                // 屏幕方向变了: 重建层 + 重新布局
+                System.out.println("[devui] orientation changed -> " + DevUI.screenW() + "x" + DevUI.screenH());
+                System.out.flush();
+                rebuildLayers();
+            }
             if (state == STATE_PANEL) {
                 reloadInfo();
                 drawPanel();
@@ -149,7 +157,8 @@ public class DevctlOverlay {
 
         // 标题栏
         DevUI.rect(c, C_TITLE, 0, 0, PANEL_W, TITLE_H);
-        font.drawText(c, infoTitle, PAD, (TITLE_H - 64 * 0.9f) / 2f, 0.9f);
+        float titleScale = Math.min(0.9f, TITLE_H / 72f);
+        font.drawText(c, infoTitle, PAD, (TITLE_H - 64 * titleScale) / 2f, titleScale);
         DevUI.rect(c, C_ACCENT, 0, TITLE_H, PANEL_W, TITLE_H + 4);
 
         // 卡片 1: 本机信息
@@ -180,15 +189,35 @@ public class DevctlOverlay {
     }
 
     static int drawCardTitle(Canvas c, int y, String t) {
-        DevUI.rect(c, C_ACCENT, PAD, y, PAD + 6, y + 40);
-        font.drawText(c, t, PAD + 22, y, 0.78f);
-        return y + 54;
+        float s = Math.min(0.78f, TITLE_H / 100f);
+        int barH = Math.round(40 * s / 0.78f);
+        DevUI.rect(c, C_ACCENT, PAD, y, PAD + 6, y + barH);
+        font.drawText(c, t, PAD + 22, y, s);
+        return y + barH + 14;
     }
 
     static int drawLine(Canvas c, int y, String text, int color, float scale) {
         if (text == null || text.isEmpty()) return y;
+        // 超宽截断: 每字符 ~64*scale 宽 (空格 34*scale)
+        float maxW = PANEL_W - PAD * 2 - 8;
+        if (font.textW(text, scale) > maxW) {
+            text = truncateTo(text, scale, maxW);
+        }
         font.drawText(c, text, PAD, y, scale);
         return y + Math.round(64 * scale) + 8;
+    }
+
+    /** 截断文本到指定像素宽 */
+    static String truncateTo(String s, float scale, float maxW) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            sb.append(ch);
+            if (font.textW(sb.toString(), scale) > maxW) {
+                return sb.substring(0, Math.max(0, sb.length() - 1)) + "..";
+            }
+        }
+        return sb.toString();
     }
 
     static void drawButton(Canvas c, int bx, int by, int bw, String label, int idx) {
@@ -347,6 +376,55 @@ public class DevctlOverlay {
         } catch (Exception e) {}
         mode = MODE_IDLE;
         btnIdx = -1;
+    }
+
+    // ==================== 旋转/布局自适应 ====================
+
+    /** 根据当前屏幕方向计算布局参数 (竖屏/横屏自适应) */
+    static void layoutMetrics() {
+        PANEL_W = DevUI.screenW();
+        PANEL_H = DevUI.screenH();
+        if (PANEL_H < PANEL_W) {
+            // 横屏: 标题栏按高度 8%, 按钮在右侧
+            TITLE_H = Math.max(60, PANEL_H / 12);
+            BTN_H = Math.max(64, PANEL_H / 14);
+            BTN_Y_OFF = Math.max(40, PANEL_H / 16);
+        } else {
+            // 竖屏
+            TITLE_H = 96;
+            BTN_H = 96;
+            BTN_Y_OFF = 150;
+        }
+    }
+
+    /** 屏幕方向变化后重建层 (尺寸必须匹配新方向) */
+    static void rebuildLayers() {
+        layoutMetrics();
+        // 停掉旧层
+        if (panel != null) { panel.remove(); }
+        if (ball != null) { ball.remove(); }
+        try {
+            ball = DevUI.layer("DevctlBall", BALL, BALL, 0x7FFFFFFF - 100);
+            panel = DevUI.layer("DevctlPanel", PANEL_W, PANEL_H, 0x7FFFFFFF - 99);
+            // 悬浮球保持屏内
+            ballX = clamp(ballX, 0, DevUI.screenW() - BALL);
+            ballY = clamp(ballY, 0, DevUI.screenH() - BALL);
+            ball.move(ballX, ballY);
+            if (state == STATE_PANEL) {
+                panel.move(0, 0);
+                ball.hide();
+                reloadInfo();
+                drawPanel();
+            } else {
+                panel.hide();
+                drawBall();
+            }
+            System.out.println("[devui] layers rebuilt for " + PANEL_W + "x" + PANEL_H);
+            System.out.flush();
+        } catch (Exception e) {
+            System.out.println("[devui] rebuild failed: " + e);
+            System.out.flush();
+        }
     }
 
     static int clamp(int v, int lo, int hi) {
