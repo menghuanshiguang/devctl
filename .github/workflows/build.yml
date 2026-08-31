@@ -9,31 +9,72 @@ permissions:
   contents: write
 
 jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: build devui.dex (javac + d8)
+        run: |
+          echo y | sdkmanager "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
+          PLAT=$ANDROID_HOME/platforms/android-35/android.jar
+          BT=$ANDROID_HOME/build-tools/35.0.0
+          mkdir -p dist classes
+          find ui/lib ui/apps -name '*.java' ! -path '*hide*' > srcs.txt
+          javac -encoding UTF-8 -source 8 -target 8 -bootclasspath "$PLAT" -d classes @srcs.txt
+          find classes -name '*.class' > clist.txt
+          "$BT/d8" --min-api 26 --output dist @clist.txt
+          mv dist/classes.dex dist/devui.dex
+      - name: build libdevui_hide.so (NDK)
+        run: |
+          echo y | sdkmanager "ndk;26.1.10909125" > /dev/null 2>&1 || true
+          NDK=$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64
+          $NDK/bin/aarch64-linux-android26-clang -shared -fPIC -O2 -o dist/libdevui_hide.so ui/lib/hide/libdevui_hide.c
+      - name: bundle devfont
+        run: cp ui/fonts/devfont.bin dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: dist
+          if-no-files-found: error
+
   android:
+    needs: [ui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ci-ui
+      - name: embed latest ui into agent
+        run: |
+          # go:embed 依赖 agent/assets/, 用 CI 构建的最新产物覆盖 (ui 内嵌进模块)
+          cp ci-ui/devui.dex agent/assets/devui.dex
+          cp ci-ui/libdevui_hide.so agent/assets/libdevui_hide.so
+          cp ci-ui/devfont.bin agent/assets/devfont.bin
       - name: build agent (android arm64)
         working-directory: agent
         run: |
           mkdir -p ../release
           CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -ldflags "-s -w" -o ../release/agent .
-      - name: package magisk module
+      - name: package magisk module (agent 内嵌全部 ui 载荷)
         run: |
           cd magisk
           cp ../release/agent ./agent
           chmod 755 agent service.sh
           zip -r ../release/devctl-android.zip module.prop service.sh agent
-      - name: upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: android-release
-          path: |
-            release/devctl-android.zip
-            release/agent
+          path: release/devctl-android.zip
           if-no-files-found: error
 
   windows:
@@ -54,45 +95,8 @@ jobs:
           path: release/agent-windows.exe
           if-no-files-found: error
 
-  ui:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: build devui.dex (javac + d8)
-        run: |
-          echo y | sdkmanager "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
-          PLAT=$ANDROID_HOME/platforms/android-35/android.jar
-          BT=$ANDROID_HOME/build-tools/35.0.0
-          mkdir -p dist classes
-          find ui/lib ui/apps -name '*.java' ! -path '*hide*' > srcs.txt
-          javac -encoding UTF-8 -source 8 -target 8 -bootclasspath "$PLAT" -d classes @srcs.txt
-          find classes -name '*.class' > clist.txt
-          "$BT/d8" --min-api 26 --output dist @clist.txt || "$BT/d8.bat" --min-api 26 --output dist @clist.txt
-          mv dist/classes.dex dist/devui.dex
-      - name: build libdevui_hide.so (NDK)
-        run: |
-          echo y | sdkmanager "ndk;26.1.10909125" > /dev/null 2>&1 || true
-          NDK=$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64
-          $NDK/bin/aarch64-linux-android26-clang -shared -fPIC -O2 -o dist/libdevui_hide.so ui/lib/hide/libdevui_hide.c
-      - name: bundle devfont
-        run: cp ui/fonts/devfont.bin dist/
-      - name: package devui zip
-        run: |
-          mkdir -p release
-          cd dist && zip -r ../release/devctl-ui.zip devui.dex libdevui_hide.so devfont.bin
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ui-release
-          path: release/devctl-ui.zip
-          if-no-files-found: error
-
   release:
-    needs: [android, windows, ui]
+    needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
