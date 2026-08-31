@@ -71,10 +71,15 @@ jobs:
           cp ../release/agent ./agent
           chmod 755 agent service.sh
           zip -r ../release/devctl-android.zip module.prop service.sh agent
+      - name: stage android assets
+        run: |
+          mkdir -p release/stage
+          cp release/devctl-android.zip release/stage/
+          cp release/agent release/stage/devctl-agent-android-arm64
       - uses: actions/upload-artifact@v4
         with:
           name: android-release
-          path: release/devctl-android.zip
+          path: release/stage
           if-no-files-found: error
 
   windows:
@@ -89,10 +94,17 @@ jobs:
         run: |
           mkdir -p ../release
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../release/agent-windows.exe .
+      - name: package windows zip (exe + 安装脚本, 解压即用)
+        run: |
+          mkdir -p release/win-stage
+          cp release/agent-windows.exe release/win-stage/
+          cp win/install-local.ps1 release/win-stage/
+          cd release/win-stage
+          zip -r ../devctl-windows.zip agent-windows.exe install-local.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: release/agent-windows.exe
+          path: release/devctl-windows.zip
           if-no-files-found: error
 
   release:

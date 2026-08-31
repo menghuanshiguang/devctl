@@ -1,0 +1,8 @@
+release v0.5: devui 悬浮控件全链路 + 自包含分发
+
+- agent: devui_start/stop/status (setsid 拉起, pid 文件, 优雅退出清层)
+- agent: 内嵌 devui 全套载荷 (devui.dex + libdevui_hide.so + devfont.bin), 自动落盘
+- agent: zapi_attach 备用注入线 (JNI 载荷 + InMemoryDexClassLoader)
+- version bump v0.5; ci: android/windows/ui 三 job + release 汇总
+- ui: DevUI API 基座 (Layer/GlyphFont/TouchInput/CmdFile) + 悬浮球/二级面板
+- ui: libdevui_hide.so 自伪装 (comm/cmdline->netd); README 坑位表
