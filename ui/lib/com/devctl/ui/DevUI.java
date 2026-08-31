@@ -435,26 +435,28 @@ public class DevUI {
 
         private void stream() {
             try {
-                Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/getevent", "-lt", devPath});
+                // 用无 -lt 的 getevent (ColorOS/oplus 驱动在 -lt 模式下不上报位置事件!)
+                // 输出格式: "0003 0035 00002e00" (type code value, 十六进制)
+                Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/getevent", devPath});
                 BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
                 String l;
                 while (running && (l = r.readLine()) != null) {
                     String[] tk = l.trim().split("\\s+");
-                    int ev = -1;
-                    for (int i = 0; i < tk.length; i++) {
-                        if (tk[i].equals("EV_ABS")) { ev = i; break; }
-                        if (tk[i].equals("EV_SYN")) { ev = -2; break; }
-                    }
-                    if (ev == -2) { onFrame(); continue; }
-                    if (ev < 0) continue;
+                    // tk = [type, code, value] (如 ["0003","0035","00002e00"])
+                    if (tk.length < 3) continue;
                     try {
-                        String code = tk[ev + 1];
-                        int val = (int) Long.parseLong(tk[ev + 2], 16);
-                        if (code.equals("ABS_MT_TRACKING_ID")) {
-                            if (val < 0 && down) { onUp(); down = false; }
-                            else if (val >= 0) { down = true; }
-                        } else if (code.equals("ABS_MT_POSITION_X")) { lastRx = val; }
-                        else if (code.equals("ABS_MT_POSITION_Y")) { lastRy = val; }
+                        int type = (int) Long.parseLong(tk[0], 16);
+                        int code = (int) Long.parseLong(tk[1], 16);
+                        int val = (int) Long.parseLong(tk[2], 16);
+                        if (type == 0x03) { // EV_ABS
+                            if (code == 0x39) { // ABS_MT_TRACKING_ID
+                                if (val < 0 && down) { onUp(); down = false; }
+                                else if (val >= 0) { down = true; }
+                            } else if (code == 0x35) { lastRx = val; }  // ABS_MT_POSITION_X
+                            else if (code == 0x36) { lastRy = val; }  // ABS_MT_POSITION_Y
+                        } else if (type == 0x00) { // EV_SYN
+                            onFrame();
+                        }
                     } catch (Exception e) {}
                 }
                 p.destroy();
