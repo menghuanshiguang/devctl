@@ -9,6 +9,16 @@ LOCAL_SHOT="$ROOT/tests/shots"
 mkdir -p "$LOCAL_SHOT"
 log() { echo "[ui_test] $*"; }
 
+# ---- 0. 唤醒+解锁 (截图前必做, 否则黑屏) ----
+wake() {
+  log "唤醒+解锁..."
+  python3 "$ROOT/client/devctl.py" run $DEV shell "input keyevent 224" 2>/dev/null || true
+  sleep 2
+  python3 "$ROOT/client/devctl.py" unlock $DEV 2>&1 | tail -1
+  sleep 2
+}
+
+# ---- 1. 部署: 推送 dex/so/字库 + 启动 ----
 deploy() {
   log "推送构建产物到设备..."
   python3 "$ROOT/client/devctl.py" run $DEV push "$ROOT/ui/dist/devui.dex" /data/local/tmp/devctl/devui.dex
@@ -20,21 +30,24 @@ deploy() {
   log "部署完成"
 }
 
+# ---- 2. 截图 ----
 shot() {
   log "设备截图..."
   python3 "$ROOT/client/devctl.py" run $DEV shell "mkdir -p $SHOT_DIR && screencap -p $SHOT_DIR/$(date +%H%M%S).png"
   python3 "$ROOT/client/devctl.py" run $DEV shell "ls -t $SHOT_DIR | head -1"
 }
 
+# ---- 3. 状态 ----
 status() {
   log "devui 状态:"
   python3 "$ROOT/client/devctl.py" devui $DEV status
-  log "agent 日志尾部:"
-  python3 "$ROOT/client/devctl.py" run $DEV shell "tail -5 /data/local/devctl/agent.log"
+  log "SurfaceFlinger 层:"
+  python3 "$ROOT/client/devctl.py" run $DEV shell "dumpsys SurfaceFlinger --list | grep -i devctl" || true
   log "devui 日志尾部:"
   python3 "$ROOT/client/devctl.py" run $DEV shell "tail -5 /data/local/devctl/devui.log"
 }
 
+# ---- 4. 拉截图回本地 ----
 pull_latest() {
   local f
   f=$(python3 "$ROOT/client/devctl.py" run $DEV shell "ls -t $SHOT_DIR | head -1" | tr -d '\r')
@@ -43,20 +56,31 @@ pull_latest() {
   echo "$LOCAL_SHOT/$f"
 }
 
+# ---- 5. 全流程: 唤醒→截图→验证 ----
 full() {
   deploy
+  wake
   shot
-  sleep 1
   status
   pull_latest
   log "完成. 截图在 $LOCAL_SHOT/"
 }
 
+# ---- 6. 断言 ----
+assert() {
+  local f
+  f="$LOCAL_SHOT/$(ls -t "$LOCAL_SHOT" | head -1)"
+  log "断言: $f"
+  python3 "$ROOT/tests/assert_shot.py" "$f" --mode auto || true
+}
+
 case "${1:-help}" in
+  wake) wake ;;
   deploy) deploy ;;
   shot) shot ;;
   status) status ;;
   pull) pull_latest ;;
+  assert) assert ;;
   full) full ;;
-  *) echo "用法: $0 {deploy|shot|status|pull|full}" ;;
+  *) echo "用法: $0 {wake|deploy|shot|status|pull|assert|full}" ;;
 esac
