@@ -1,5 +1,9 @@
-release/agent
-release/*.zip
-__pycache__/
-*.pyc
-agent.log
+# 构建产物 (源在 build 机/本地可重新生成)
+release/
+ui/dist/
+overlay/release/
+ui/tools/*.png
+ui/tools/*.dex
+ui/tools/*.bin.swp
+
+# 注意: agent/assets/devui.dex 需提交 (go:embed 依赖)
