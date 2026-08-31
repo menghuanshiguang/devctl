@@ -330,6 +330,8 @@ public class DevctlOverlay {
     // ==================== 触摸状态机 ====================
 
     static void onDown(int sx, int sy) {
+        System.out.println("[devui] onDown " + sx + "," + sy + " state=" + state);
+        System.out.flush();
         try {
             if (mode != MODE_IDLE) return;
             if (state == STATE_BALL) {
@@ -363,6 +365,8 @@ public class DevctlOverlay {
     }
 
     static void onUp(int sx, int sy, boolean tap) {
+        System.out.println("[devui] onUp " + sx + "," + sy + " tap=" + tap + " mode=" + mode + " btn=" + btnIdx);
+        System.out.flush();
         try {
             if (tap) {
                 if (mode == MODE_DRAG_BALL && state == STATE_BALL) openPanel();
