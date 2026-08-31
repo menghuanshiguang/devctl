@@ -43,3 +43,25 @@
 | 5.1 | 全流程集成 | full 测试全绿 | 所有断言通过 |
 | 5.2 | 回归测试 | v0.5 功能不破坏 | 球/面板/刷新/退出 |
 | 5.3 | 发布 | tag v0.6 + release | CI 构建全绿 |
+
+## Sprint 3 补充: 横屏兼容 (2026-08-31 实机验证)
+
+### 需求
+- 游戏 (Minecraft) 强制横屏时悬浮窗须自适应
+- 位置: 悬浮球跟随横屏右侧, 面板全屏横屏布局, 按钮不溢出
+
+### 实现
+| 组件 | 改动 |
+|---|---|
+| DevUI.java | `refreshScreenSize()` 公开; screenSize 优先读 `dumpsys window` mBounds (游戏 rotation), 兜底 wm size |
+| DevctlOverlay.java | 主循环 2s 旋转检测 (W/H 变化→rebuildLayers); `layoutMetrics()` 横屏自适应 (标题栏/按钮按屏高比例); `truncateTo()` 文本行宽截断 |
+
+### 关键坑
+1. `wm size` 只报 Physical (1216x2640), **游戏横屏是 app 层 rotation** (`mBounds=Rect(0,0 - 2640,1216)`) → 起初检测不到旋转
+2. 尝试 wm size override 模拟横屏 → **危险** (用户红线: 切勿改分辨率) → 改用地真实游戏 (MC) 横屏测试
+3. mBounds grep 取第一处 (横屏窗口), 第二处是 0,0-0,0 隐藏窗口 (head -1 规避)
+
+### 自动化验证 (MC 横屏实测)
+- [x] 启动 MC → mRotation=ROTATION_90, screencap 2640x1216
+- [x] 悬浮球横屏位置 (2450,405 右侧) 截图确认
+- [x] 横屏面板全屏 + 标题栏/信息卡/按钮布局截图确认
