@@ -65,3 +65,19 @@
 - [x] 启动 MC → mRotation=ROTATION_90, screencap 2640x1216
 - [x] 悬浮球横屏位置 (2450,405 右侧) 截图确认
 - [x] 横屏面板全屏 + 标题栏/信息卡/按钮布局截图确认
+
+## 触摸链路修复记录 (2026-08-31)
+
+### 问题
+- 竖屏/横屏点击悬浮球/按钮无反应 (sendevent 注入测试发现)
+
+### 根因 (3 个)
+1. **ColorOS/oplus 触摸驱动在 `getevent -lt` 模式下不上报位置事件** (ABS_MT_POSITION_X/Y)
+   → stream() 改用**无 -lt** 的 `getevent` (输出 `type code value` 十六进制), code 数字解析
+2. **TRACKING_ID UP (0xFFFFFFFF) 被 parse16 解析为正数 4294967295**
+   → `val < 0` 判断永远 false, onUp 不触发 → 改判断 `val == 0xFFFFFFFF || val == -1`
+3. **悬浮球/面板坐标用屏幕方向映射** (sx/sy 按 orientation 旋转) — 修复横屏坐标错位
+
+### 自动化限制
+- `sendevent` 注入在 ColorOS 驱动上**不稳定** (随机丢弃位置事件, 100,100 有时成功有时失败)
+- **真实手指触摸可靠** (驱动必上报完整坐标), 最终验证由用户手指确认
