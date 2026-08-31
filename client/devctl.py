@@ -11,6 +11,14 @@ import struct
 import sys
 import time
 
+# ---------- IP 工具 ----------
+def is_ipv6(host):
+    """判断 host 是否为 IPv6 字面量 (含带 zone 的 fe80::1%en0)"""
+    try:
+        return ":" in host and "%" not in host and socket.inet_pton(socket.AF_INET6, host) is not None
+    except OSError:
+        return ":" in host  # 带 zone 的 fe80::1%xxx 也按 IPv6 处理
+
 CONFIG = os.path.expanduser("~/.devctl/config.json")
 PORT_DEFAULT = 5556
 TOKEN_DEFAULT = "devctl"
@@ -83,19 +91,21 @@ def connect(d, timeout=8):
     for delay in (0, 0.5, 1, 2):  # 自动重试 4 次
         try:
             raw = socket.create_connection((d["host"], d.get("port", PORT_DEFAULT)), timeout=timeout)
+            # IPv6 字面量不能作为 TLS SNI (需 DNS 名), 传 None 跳过 SNI
+            sni = None if is_ipv6(d["host"]) else d["host"]
             if os.path.exists(cert_file):
                 # 已有证书: 严格校验 (TOFU)
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 ctx.load_verify_locations(cert_file)
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_REQUIRED
-                s = ctx.wrap_socket(raw, server_hostname=d["host"])
+                s = ctx.wrap_socket(raw, server_hostname=sni)
             else:
                 # 首次连接: 获取证书保存 (Trust On First Use)
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
-                probe = ctx.wrap_socket(raw, server_hostname=d["host"])
+                probe = ctx.wrap_socket(raw, server_hostname=sni)
                 der = probe.getpeercert(binary_form=True)
                 if der:
                     with open(cert_file, "w") as f:
@@ -106,7 +116,7 @@ def connect(d, timeout=8):
                 ctx2.load_verify_locations(cert_file)
                 ctx2.check_hostname = False
                 ctx2.verify_mode = ssl.CERT_REQUIRED
-                s = ctx2.wrap_socket(raw, server_hostname=d["host"])
+                s = ctx2.wrap_socket(raw, server_hostname=sni)
             s.settimeout(timeout)
             send(s, {"t": "hello", "token": d.get("token", TOKEN_DEFAULT), "name": d["name"]})
             ack = LineReader(s).next()
@@ -275,8 +285,10 @@ def cmd_update(a):
     if not r.get("ok"):
         emit(a, r)
     # 4. 杀旧进程, 连接会断 (预期), service.sh 10s 内拉起新版本
+    # agent 伪装后 cmdline 是 /system/bin/netd, pkill -f 按 cmdline 匹配不到!
+    # 唯一可靠识别: readlink /proc/*/exe == remote 路径 (skill 红线)
     try:
-        cmd_call(d, "shell", [f"pkill -f '^{a.remote}' || true"], timeout=10)
+        cmd_call(d, "shell", [f"for p in /proc/[0-9]*; do exe=$(readlink $p/exe 2>/dev/null); case \"$exe\" in {a.remote}*) kill ${{p##*/}} 2>/dev/null ;; esac; done || true"], timeout=15)
     except (SystemExit, ConnectionError, OSError, socket.timeout):
         pass
     time.sleep(12)

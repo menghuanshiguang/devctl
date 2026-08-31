@@ -109,8 +109,29 @@ jobs:
           path: release/devctl-windows-*.zip
           if-no-files-found: error
 
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: package client zip (devctl.py + 快捷入口 + 说明, 解压即用)
+        run: |
+          VER=${GITHUB_REF_NAME}
+          mkdir -p release/client-stage
+          cp client/devctl.py release/client-stage/
+          cp client/devctl.bat release/client-stage/
+          cp client/README-client.md release/client-stage/README.md
+          chmod +x release/client-stage/devctl.py
+          cd release/client-stage
+          zip -r "../devctl-client-${VER}.zip" devctl.py devctl.bat README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-release
+          path: release/devctl-client-*.zip
+          if-no-files-found: error
+
   release:
-    needs: [android, windows]
+    needs: [android, windows, client]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -7,3 +7,4 @@ ui/tools/*.dex
 ui/tools/*.bin.swp
 
 # 注意: agent/assets/devui.dex 需提交 (go:embed 依赖)
+__pycache__/
