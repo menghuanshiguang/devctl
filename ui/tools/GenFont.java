@@ -12,7 +12,8 @@ public class GenFont {
         System.setProperty("java.awt.headless", "true");
         String ascii = "";
         for (char c = 32; c < 127; c++) ascii += c;
-        String cn = "面板刷新收起退出型号系统内存架构设备正在连接失败运行状态版本内核点击拖动悬浮控制加载功耗温度网络代理日志管理设置在线离线关闭开始停止重启手机处理器存储电量信号时间日期共个十百千万兆GKKB点杠杠中英文大小写数字";
+        String cn = "面板刷新收起退出型号系统内存架构设备正在连接失败运行状态版本内核点击拖动悬浮控制加载功耗温度网络代理日志管理设置在线离线关闭开始停止重启手机处理器存储电量信号时间日期共个十百千万兆GKKB点杠杠中英文大小写数字" +
+                "仪表盘总览客户端被其他未正常异常通信授权覆盖全屏窗口修改器风格息据身等待";
         // 去重
         StringBuilder sb = new StringBuilder();
         for (char c : (ascii + cn).toCharArray())
