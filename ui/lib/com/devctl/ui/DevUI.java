@@ -450,8 +450,12 @@ public class DevUI {
                         int val = (int) Long.parseLong(tk[2], 16);
                         if (type == 0x03) { // EV_ABS
                             if (code == 0x39) { // ABS_MT_TRACKING_ID
-                                if (val < 0 && down) { onUp(); down = false; }
-                                else if (val >= 0) { down = true; }
+                                // UP = 0xFFFFFFFF (parse16 得正数 4294967295, 需专门判断)
+                                if (val == 0xFFFFFFFF || val == -1) {
+                                    if (down) { onUp(); down = false; }
+                                } else if (val >= 0) {
+                                    down = true;
+                                }
                             } else if (code == 0x35) { lastRx = val; }  // ABS_MT_POSITION_X
                             else if (code == 0x36) { lastRy = val; }  // ABS_MT_POSITION_Y
                         } else if (type == 0x00) { // EV_SYN
