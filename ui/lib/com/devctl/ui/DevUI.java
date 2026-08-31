@@ -99,9 +99,23 @@ public class DevUI {
             Process p = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", "wm size"});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             String l;
+            // 优先匹配 Override size (旋转/模拟分辨率), 否则 Physical
+            boolean overridden = false;
+            String physical = null;
             while ((l = r.readLine()) != null) {
                 Matcher m = Pattern.compile("(\\d+)\\s*x\\s*(\\d+)").matcher(l);
-                if (m.find()) { screenW = Integer.parseInt(m.group(1)); screenH = Integer.parseInt(m.group(2)); break; }
+                if (m.find()) {
+                    if (l.contains("Override")) {
+                        screenW = Integer.parseInt(m.group(1)); screenH = Integer.parseInt(m.group(2));
+                        overridden = true;
+                    } else if (physical == null) {
+                        physical = l;
+                    }
+                }
+            }
+            if (!overridden && physical != null) {
+                Matcher m = Pattern.compile("(\\d+)\\s*x\\s*(\\d+)").matcher(physical);
+                if (m.find()) { screenW = Integer.parseInt(m.group(1)); screenH = Integer.parseInt(m.group(2)); }
             }
             p.waitFor();
         } catch (Exception e) {}
