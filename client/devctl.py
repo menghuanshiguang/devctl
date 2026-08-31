@@ -765,8 +765,47 @@ def main():
     sp.add_argument("--timeout", type=int, default=30)
     sp.set_defaults(fn=cmd_stop)
 
+    sp = sub.add_parser("devui", parents=[j], help="悬浮控件 (app_process + DevUI API 基座)")
+    sp.add_argument("name")
+    sp.add_argument("op", choices=["push", "start", "stop", "status", "open", "close", "refresh"])
+    sp.add_argument("--timeout", type=int, default=30)
+    sp.set_defaults(fn=cmd_devui)
+
     a = p.parse_args()
     a.fn(a)
+
+
+def cmd_devui(a):
+    """devui 悬浮控件管理"""
+    import os as _os
+    d = find(a.name)
+    REMOTE = "/data/local/tmp/devctl"
+    FILES = ["devui.dex", "libdevui_hide.so", "devfont.bin"]
+    if a.op == "push":
+        base = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "ui", "dist")
+        ok = True
+        for f in FILES:
+            p = _os.path.join(base, f)
+            if not _os.path.exists(p):
+                emit(a, {"ok": False, "stdout": f"本地缺 {f} (先跑 ui/build.ps1)"})
+                ok = False
+                continue
+            try:
+                b = open(p, "rb").read()
+                r = cmd_call(d, "push", [f"{REMOTE}/{f}"], data=base64.b64encode(b).decode(), timeout=a.timeout)
+                print(r.get("stdout", ""), end="" if r.get("stdout", "").endswith("\n") else "\n")
+            except Exception as e:
+                emit(a, {"ok": False, "stdout": f"push {f} 失败: {e}"})
+                ok = False
+        if ok:
+            print(f"push 完成 -> {REMOTE}/")
+        sys.exit(0)
+    if a.op == "open" or a.op == "close" or a.op == "refresh":
+        r = cmd_call(d, "shell", [f"echo {a.op} > {REMOTE}/cmd"], timeout=a.timeout)
+        emit(a, r)
+        sys.exit(0)
+    r = cmd_call(d, f"devui_{a.op}", [], timeout=a.timeout)
+    emit(a, r)
 
 
 if __name__ == "__main__":

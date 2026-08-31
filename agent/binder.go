@@ -1,4 +1,6 @@
-//go:build android
+//go:build ignore
+
+// binder.go: binder 直连实验半成品 (SM 握手未完成), 不参与构建 (见 DESIGN 记录)
 
 package main
 
