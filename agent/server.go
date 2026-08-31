@@ -36,6 +36,8 @@ type conn struct {
 	mu           sync.Mutex
 	authed       bool
 	streamingCmd *exec.Cmd
+	peerAddr     string // 远端地址 (peers 追踪 key)
+	peerName     string // 客户端自报名 (hello.name)
 }
 
 var methods = map[string]func(*conn, Msg){}
@@ -61,9 +63,10 @@ func serve(port int, token string) error {
 }
 
 func handle(nc net.Conn, token string) {
-	c := &conn{nc: nc, r: bufio.NewReaderSize(nc, 1<<20)}
+	c := &conn{nc: nc, r: bufio.NewReaderSize(nc, 1<<20), peerAddr: nc.RemoteAddr().String()}
 	defer nc.Close()
 	defer func() {
+		peerDel(c.peerAddr)
 		c.mu.Lock()
 		if c.streamingCmd != nil {
 			c.streamingCmd.Process.Kill()
@@ -87,6 +90,8 @@ func handle(nc net.Conn, token string) {
 				return
 			}
 			c.authed = true
+			c.peerName = m.Name
+			peerAdd(m.Name, c.peerAddr)
 			c.send(Msg{T: "hello_ack", Ok: boolp(true), Version: version, Device: deviceInfo()})
 			continue
 		}
@@ -114,6 +119,7 @@ func (c *conn) dispatch(m Msg) {
 		c.send(Msg{T: "res", ID: m.ID, Ok: boolp(false), Stderr: "unknown method: " + m.Method})
 		return
 	}
+	peerMarkCmd(c.peerAddr, m.Method)
 	start := time.Now()
 	fn(c, m)
 	logOps(m, time.Since(start).Milliseconds())
