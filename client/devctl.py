@@ -67,7 +67,7 @@ class LineReader:
         return json.loads(line)
 
 
-def connect(d, timeout=8):
+def connect(d, timeout=30):
     last = None
     if not d.get("tls", True):
         # 明文模式 (迁移/兼容)
@@ -130,7 +130,7 @@ def connect(d, timeout=8):
     sys.exit(f"连接 {d['host']}:{d.get('port', PORT_DEFAULT)} 失败: {last}")
 
 
-def cmd_call(d, method, args, data="", timeout=30):
+def cmd_call(d, method, args, data="", timeout=45):
     s = connect(d)
     s.settimeout(timeout)
     send(s, {"t": "cmd", "id": 1, "method": method, "args": args, "data": data})
@@ -200,7 +200,7 @@ def cmd_ping(a):
     d = find(a.name)
     ok = True
     try:
-        s = connect(d, timeout=5)
+        s = connect(d, timeout=30)
         send(s, {"t": "ping"})
         LineReader(s).next()
     except (OSError, socket.timeout, ConnectionError, SystemExit) as e:

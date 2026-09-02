@@ -90,9 +90,11 @@ func handle(nc net.Conn, token string) {
 				return
 			}
 			c.authed = true
+			// v0.5.4: 先应答后记录 — hello_ack 一定先发出, 记录(peers/dash)在其后,
+			// 任何记录异常都不影响握手链路
+			c.send(Msg{T: "hello_ack", Ok: boolp(true), Version: version, Device: deviceInfo()})
 			c.peerName = m.Name
 			peerAdd(m.Name, c.peerAddr)
-			c.send(Msg{T: "hello_ack", Ok: boolp(true), Version: version, Device: deviceInfo()})
 			continue
 		}
 		switch m.T {
