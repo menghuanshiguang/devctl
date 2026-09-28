@@ -17,6 +17,6 @@ type Msg struct {
 	Device  string   `json:"device,omitempty"`
 }
 
-const version = "v0.5"
+const version = "v0.5.5"
 
 func boolp(b bool) *bool { return &b }

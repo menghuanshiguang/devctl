@@ -1,6 +1,6 @@
 id=devctl_agent
 name=devctl agent
-version=v0.4
-versionCode=4
+version=v0.5.5
+versionCode=55
 author=devctl
 description=devctl agent
